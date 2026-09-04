@@ -112,18 +112,6 @@ while True:
     if event in (sg.WIN_CLOSED, 'Выход'):
         break
 
-    '''if event == 'Подготовить таблицу приборов':
-        try:
-            count = int(values['-COUNT-'])
-            if count < 1:
-                sg.popup_error('Количество должно быть >= 1')
-                continue
-            #devices.clear()
-            update_device_list(count)
-            sg.popup_ok(f'Готово! Можно добавлять до {count} приборов (сейчас {len(devices)})')
-        except ValueError:
-            sg.popup_error('Введите целое число')'''
-
     if event == '➕ Добавить прибор':
         if devices and len(devices) >= int(values['-COUNT-']):
             sg.popup_error(f'Вы уже добавили {len(devices)} приборов. Задано: {values["-COUNT-"]}')
