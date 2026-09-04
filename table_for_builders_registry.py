@@ -4,6 +4,7 @@ from openpyxl.utils import column_index_from_string
 import PySimpleGUI as sg
 import sys
 import os
+from copy import copy
 
 def keypress(event):
     """Обработка копи паста на русской раскладке"""
@@ -171,6 +172,24 @@ while True:
         except Exception as e:
             sg.popup_error(f'Ошибка открытия шаблона: {e}')
             continue
+
+        # Копируем форматирование из строки-образца (строка 2)
+        source_row = 2
+        if (len(devices) > 2):
+            max_col = ws.max_column
+            for i in range(4, len(devices) + 2):
+                target_row = i
+                ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+                for col in range(1, max_col + 1):
+                    src_cell = ws.cell(source_row, col)
+                    dst_cell = ws.cell(target_row, col)
+                    dst_cell.value = src_cell.value
+                    if src_cell.has_style:
+                        dst_cell.font = copy(src_cell.font)
+                        dst_cell.border = copy(src_cell.border)
+                        dst_cell.fill = copy(src_cell.fill)
+                        dst_cell.number_format = src_cell.number_format
+                        dst_cell.alignment = copy(src_cell.alignment)
 
         common = {
             'D': values['-OBJECT_NAME-'].strip(),
