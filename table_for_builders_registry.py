@@ -6,7 +6,30 @@ import sys
 import os
 from copy import copy
 
+__version__ = 'v1.3'
+
 devices = []  # Список кортежей (наименование, mac)
+
+COLUMNS = {
+    'ИНН организации, где сотрудник трудоустроен': 'A',
+    'Наименование организации трудоустройства': 'B',
+    'КПП организации': 'C',
+    'Наименование объекта': 'D',
+    'УИН объекта строительства': 'E',
+    'Адрес объекта': 'F',
+    'ИНН организации- генподрядчика': 'G',
+    'КПП организации - генподрядчика': 'H',
+    'Дата начала строительства': 'I',
+    'Дата окончания строительства': 'J',
+    'ID прибора': 'K',
+    'MAC - адрес прибора': 'L',
+    'Наименование прибора': 'M',
+    'Тип прибора': 'N',
+    'SN прибора': 'O',
+    'Дата ввода в эксплуатацию': 'P',
+    'Дата снятия прибора с эксплуатации': 'Q',
+    'Даты простоя (технического обслуживания)': 'R'
+}
 
 def keypress(event):
     """Обработка копи паста на русской раскладке"""
@@ -47,6 +70,14 @@ def add_device_to_list():
     if not is_valid_mac(mac):
         sg.popup_error('MAC невалидный. Ожидается XX:XX:XX:XX:XX:XX')
         return
+    # Проверка дубликатов
+    for existing_name, existing_mac in devices:
+        if existing_name == name:
+            sg.popup_error(f'Прибор с наименованием "{name}" уже добавлен!')
+            return
+        if existing_mac == mac:
+            sg.popup_error(f'MAC-адрес "{mac}" уже используется прибором "{existing_name}"!')
+            return
     devices.append((name, mac))
     update_device_list()
     window['-DEVICE_NAME-'].set_focus()
@@ -90,18 +121,15 @@ def validate_excel_file(filepath):
         # Проверка K — ID прибора (формат УИН-MAC)
         id_cell = ws.cell(row, column=column_index_from_string('K'))
         id_val = str(id_cell.value).strip() if id_cell.value else ''
-        if id_val:
+        if len(id_val) < 19 or id_val[18] != '-':
+            errors.append(f'Строка {row}, колонка K: неверный формат ID (ожидается УИН-MAC) "{id_val}"')
+        else:
             uin_part = id_val[:18]
             mac_part = id_val[19:]
-            if id_val[18] != '-':
-                errors.append(f'Строка {row}, колонка K: неверный формат ID (ожидается УИН-MAC) "{id_val}"')
             if not is_valid_uin(uin_part):
                 errors.append(f'Строка {row}, колонка K: часть УИН невалидна "{uin_part}"')
             if not is_valid_mac(mac_part):
                 errors.append(f'Строка {row}, колонка K: часть MAC невалидна "{mac_part}"')
-        else:
-            errors.append(f'Строка {row}, колонка K: значение отсутствует')
-
         row += 1
 
     if not errors:
@@ -162,10 +190,14 @@ while True:
         break
 
     if event == '➕ Добавить прибор':
-        if devices and len(devices) >= int(values['-COUNT-']):
-            sg.popup_error(f'Вы уже добавили {len(devices)} приборов. Задано: {values["-COUNT-"]}')
+        try:
+            if devices and len(devices) >= int(values['-COUNT-']):
+                sg.popup_error(f'Вы уже добавили {len(devices)} приборов. Задано: {values["-COUNT-"]}')
+                continue
+            add_device_to_list()
+        except ValueError:
+            sg.popup_error(f'Количество приборов должно быть числом')
             continue
-        add_device_to_list()
 
     if event == '❌ Удалить выбранный':
         selected = values['-DEVICE_LIST-']
@@ -210,7 +242,7 @@ while True:
             sg.popup_error(f'Ошибка открытия шаблона: {e}')
             continue
 
-        # Копируем форматирование из строки-образца (строка 2)
+        # Копируем предзаполнение и форматирование из строки-образца (строка 2)
         source_row = 2
         if (len(devices) > 2):
             max_col = ws.max_column
@@ -229,39 +261,47 @@ while True:
                         dst_cell.alignment = copy(src_cell.alignment)
 
         common = {
-            'D': values['-OBJECT_NAME-'].strip(),
-            'E': values['-UIN-'].strip(),
-            'F': values['-OBJECT_ADDRESS-'].strip(),
-            'G': values['-INN_GEN-'].strip(),
-            'H': values['-KPP_GEN-'].strip(),
-            'I': values['-DATE_START-'].strip(),
-            'J': values['-DATE_END-'].strip(),
-            'N': values['-DEVICE_TYPE-'].strip(),
-            'P': values['-DATE_ACTIVATE-'].strip(),
-            'Q': values['-DATE_REMOVE-'].strip(),
-            'R': values['-DOWNTIME-'].strip()
+            COLUMNS['Наименование объекта']: values['-OBJECT_NAME-'].strip(),
+            COLUMNS['УИН объекта строительства']: values['-UIN-'].strip(),
+            COLUMNS['Адрес объекта']: values['-OBJECT_ADDRESS-'].strip(),
+            COLUMNS['ИНН организации- генподрядчика']: values['-INN_GEN-'].strip(),
+            COLUMNS['КПП организации - генподрядчика']: values['-KPP_GEN-'].strip(),
+            COLUMNS['Дата начала строительства']: values['-DATE_START-'].strip(),
+            COLUMNS['Дата окончания строительства']: values['-DATE_END-'].strip(),
+            COLUMNS['Тип прибора']: values['-DEVICE_TYPE-'].strip(),
+            COLUMNS['Дата ввода в эксплуатацию']: values['-DATE_ACTIVATE-'].strip(),
+            COLUMNS['Дата снятия прибора с эксплуатации']: values['-DATE_REMOVE-'].strip(),
+            COLUMNS['Даты простоя (технического обслуживания)']: values['-DOWNTIME-'].strip()
         }
+
+        common_keys = [
+            'Наименование объекта',
+            'УИН объекта строительства',
+            'Адрес объекта',
+            'ИНН организации- генподрядчика',
+            'КПП организации - генподрядчика',
+            'Дата начала строительства',
+            'Дата окончания строительства',
+            'Тип прибора',
+            'Дата ввода в эксплуатацию',
+            'Дата снятия прибора с эксплуатации',
+            'Даты простоя (технического обслуживания)'
+        ]
 
         for i, (device_name, mac) in enumerate(devices):
             row = 2 + i
             # Колонки A, B, C не трогаем – оставляем как в шаблоне
-            ws.cell(row=row, column=column_index_from_string('D')).value = common['D']
-            ws.cell(row=row, column=column_index_from_string('E')).value = common['E']
-            ws.cell(row=row, column=column_index_from_string('F')).value = common['F']
-            ws.cell(row=row, column=column_index_from_string('G')).value = common['G']
-            ws.cell(row=row, column=column_index_from_string('H')).value = common['H']
-            ws.cell(row=row, column=column_index_from_string('I')).value = common['I']
-            ws.cell(row=row, column=column_index_from_string('J')).value = common['J']
-            ws.cell(row=row, column=column_index_from_string('N')).value = common['N']
-            ws.cell(row=row, column=column_index_from_string('P')).value = common['P']
-            ws.cell(row=row, column=column_index_from_string('Q')).value = common['Q']
-            ws.cell(row=row, column=column_index_from_string('R')).value = common['R']
+            # Заполняем общие поля
+            for key in common_keys:
+                col_letter = COLUMNS[key]
+                ws.cell(row=row, column=column_index_from_string(col_letter)).value = common[col_letter]
 
+            # Заполняем спец поля
             device_id = f'{uin}-{mac}'
-            ws.cell(row=row, column=column_index_from_string('K')).value = device_id
-            ws.cell(row=row, column=column_index_from_string('L')).value = mac
-            ws.cell(row=row, column=column_index_from_string('M')).value = device_name
-            ws.cell(row=row, column=column_index_from_string('O')).value = mac
+            ws.cell(row=row, column=column_index_from_string(COLUMNS['ID прибора'])).value = device_id
+            ws.cell(row=row, column=column_index_from_string(COLUMNS['MAC - адрес прибора'])).value = mac
+            ws.cell(row=row, column=column_index_from_string(COLUMNS['Наименование прибора'])).value = device_name
+            ws.cell(row=row, column=column_index_from_string(COLUMNS['SN прибора'])).value = mac
 
         output_file = values['-OUTPUT-'].strip()
         if not output_file:
