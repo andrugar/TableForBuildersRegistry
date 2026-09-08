@@ -6,7 +6,7 @@ import sys
 import os
 from copy import copy
 
-__version__ = 'v1.3'
+__version__ = 'v1.3.1'
 
 devices = []  # Список кортежей (наименование, mac)
 
@@ -40,16 +40,16 @@ def keypress(event):
     elif event.keycode == 88 and event.keysym.lower() != 'x':
         event.widget.event_generate('<<Cut>>')
 
-def is_valid_mac(mac):
+def is_valid_mac(mac: str) -> bool:
     """Валидация MAC-адреса"""
     return re.fullmatch(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$', mac.strip()) is not None
 
-def is_valid_uin(uin):
+def is_valid_uin(uin: str) -> bool:
     """Валидация УИН"""
     return re.fullmatch(r'^[A-Z]{2}\d{4}-\d{2}-\d{4}-\d{3}$', uin.strip()) is not None
 
-def get_template_path():
-    """Возвращает путь к файлу-шаблону, который может быть встроен в exe."""
+def get_template_path() -> str:
+    """Возвращает путь к файлу-шаблону (учитывает сборку в exe)."""
     if getattr(sys, 'frozen', False):
         # Запущено как скомпилированный .exe
         base_path = sys._MEIPASS
@@ -97,29 +97,28 @@ def validate_excel_file(filepath):
     errors = []
     row = 2
     while True:
-        uin_cell = ws.cell(row, column=column_index_from_string('E'))
+        uin_cell = ws.cell(row, column=column_index_from_string(COLUMNS['УИН объекта строительства']))
         if uin_cell.value is None:
             break  # пустая ячейка УИН — считаем концом данных
-
         # Проверка E — УИН
         uin = str(uin_cell.value).strip()
         if not is_valid_uin(uin):
             errors.append(f'Строка {row}, колонка E: невалидный УИН "{uin}"')
 
         # Проверка L — MAC
-        mac_cell = ws.cell(row, column=column_index_from_string('L'))
+        mac_cell = ws.cell(row, column=column_index_from_string(COLUMNS['MAC - адрес прибора']))
         mac = str(mac_cell.value).strip() if mac_cell.value else ''
         if not is_valid_mac(mac):
             errors.append(f'Строка {row}, колонка L: невалидный MAC "{mac}"')
 
         # Проверка O — SN (MAC)
-        sn_cell = ws.cell(row, column=column_index_from_string('O'))
+        sn_cell = ws.cell(row, column=column_index_from_string(COLUMNS['SN прибора']))
         sn = str(sn_cell.value).strip() if sn_cell.value else ''
         if not is_valid_mac(sn):
             errors.append(f'Строка {row}, колонка O: невалидный SN (MAC) "{sn}"')
 
         # Проверка K — ID прибора (формат УИН-MAC)
-        id_cell = ws.cell(row, column=column_index_from_string('K'))
+        id_cell = ws.cell(row, column=column_index_from_string(COLUMNS['ID прибора']))
         id_val = str(id_cell.value).strip() if id_cell.value else ''
         if len(id_val) < 19 or id_val[18] != '-':
             errors.append(f'Строка {row}, колонка K: неверный формат ID (ожидается УИН-MAC) "{id_val}"')
@@ -136,6 +135,31 @@ def validate_excel_file(filepath):
         return '✅ Все данные валидны!'
     else:
         return '❌ Найдены ошибки:\n' + '\n'.join(errors)
+
+def show_file_validation_window():
+    """Окно проверки файла"""
+    layout_file_validation = [
+        [sg.Text('Выберите файл для проверки:'), sg.Input(key='-CHECK_FILE-', size=(50, 1)),
+         sg.FileBrowse(file_types=(("Excel files", "*.xlsx"),))],
+        [sg.Button('Проверить'), sg.Button('Закрыть')],
+        [sg.Multiline(size=(80, 15), key='-CHECK_RESULT-', autoscroll=True, disabled=True)]
+    ]
+    window_file_validation = sg.Window('Проверка файла', layout_file_validation, modal=True, finalize=True)
+    while True:
+        event, values = window_file_validation.read()
+        if event in (sg.WIN_CLOSED, 'Закрыть'):
+            break
+        if event == 'Проверить':
+            filepath = values['-CHECK_FILE-'].strip()
+            if not filepath:
+                sg.popup_error('Выберите файл!')
+                continue
+            if not os.path.exists(filepath):
+                sg.popup_error('Файл не найден!')
+                continue
+            result = validate_excel_file(filepath)
+            window_file_validation['-CHECK_RESULT-'].update(result)
+    window_file_validation.close()
 
 # --- GUI ---
 sg.theme('Default1')
@@ -317,26 +341,4 @@ while True:
 
 
     if event == '🔍 Проверить другой заполненный файл':
-        """Окно проверки файла"""
-        layout_file_validation = [
-            [sg.Text('Выберите файл для проверки:'), sg.Input(key='-CHECK_FILE-', size=(50, 1)),
-             sg.FileBrowse(file_types=(("Excel files", "*.xlsx"),))],
-            [sg.Button('Проверить'), sg.Button('Закрыть')],
-            [sg.Multiline(size=(80, 15), key='-CHECK_RESULT-', autoscroll=True, disabled=True)]
-        ]
-        window_file_validation = sg.Window('Проверка файла', layout_file_validation, modal=True, finalize=True)
-        while True:
-            event, values = window_file_validation.read()
-            if event in (sg.WIN_CLOSED, 'Закрыть'):
-                break
-            if event == 'Проверить':
-                filepath = values['-CHECK_FILE-'].strip()
-                if not filepath:
-                    sg.popup_error('Выберите файл!')
-                    continue
-                if not os.path.exists(filepath):
-                    sg.popup_error('Файл не найден!')
-                    continue
-                result = validate_excel_file(filepath)
-                window_file_validation['-CHECK_RESULT-'].update(result)
-        window_file_validation.close()
+        show_file_validation_window()
