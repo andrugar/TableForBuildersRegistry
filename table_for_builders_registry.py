@@ -52,49 +52,8 @@ def is_valid_uin(uin: str) -> bool:
     return re.fullmatch(r'^[A-Z]{2}\d{4}-\d{2}-\d{4}-\d{3}$', uin.strip()) is not None
 
 
-def get_template_path() -> str:
-    """Возвращает путь к файлу-шаблону (учитывает сборку в exe)."""
-    if getattr(sys, 'frozen', False):
-        # Запущено как скомпилированный .exe
-        base_path = sys._MEIPASS
-    else:
-        # Запущено как обычный скрипт
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-    template_name = 'Реестр_Строителей.xlsx'
-    return os.path.join(base_path, template_name)
-
-
-def add_device_to_list(window):
-    name = window['-DEVICE_NAME-'].get().strip()
-    mac = window['-DEVICE_MAC-'].get().strip().upper()
-    if not name:
-        sg.popup_error('Введите наименование прибора!')
-        return
-    mac = re.sub(r'[:\-.]', ':', mac)
-    if not is_valid_mac(mac):
-        sg.popup_error('MAC невалидный. Ожидается XX:XX:XX:XX:XX:XX')
-        return
-    # Проверка дубликатов
-    for existing_name, existing_mac in devices:
-        if existing_name == name:
-            sg.popup_error(f'Прибор с наименованием "{name}" уже добавлен!')
-            return
-        if existing_mac == mac:
-            sg.popup_error(f'MAC-адрес "{mac}" уже используется прибором "{existing_name}"!')
-            return
-    devices.append((name, mac))
-    update_device_list(window)
-    window['-DEVICE_NAME-'].set_focus()
-
-
-def update_device_list(window):
-    display = [f'{i + 1:2}. {name:30} | {mac}' for i, (name, mac) in enumerate(devices)]
-    window['-DEVICE_LIST-'].update(values=display)
-
-
-def validate_excel_file(filepath):
-    """Проверяет файл на соответствие шаблону. Возвращает строку с отчетом."""
+def validate_excel_file(filepath: str):
+    """Проверяет файл на соответствие шаблону. Возвращает строку с отчетом"""
     try:
         wb = openpyxl.load_workbook(filepath, data_only=True)
         ws = wb.active
@@ -171,6 +130,7 @@ def show_file_validation_window():
 
 
 def build_main_window() -> sg.Window:
+    """Создаёт и возвращает главное окно"""
     sg.theme('Default1')
 
     layout = [
@@ -191,10 +151,6 @@ def build_main_window() -> sg.Window:
         [sg.Text('Дата ввода', size=(25, 1)), sg.Input(key='-DATE_ACTIVATE-', size=(40, 1))],
         [sg.Text('Дата снятия', size=(25, 1)), sg.Input('1', key='-DATE_REMOVE-', size=(40, 1))],
         [sg.Text('Даты простоя', size=(25, 1)), sg.Input('1', key='-DOWNTIME-', size=(40, 1))],
-
-        [sg.HorizontalSeparator()],
-        [sg.Text('📟 КОЛИЧЕСТВО ПРИБОРОВ', font=('Arial', 12, 'bold'))],
-        [sg.Text('Укажите количество приборов', size=(25, 2)), sg.Input('1', key='-COUNT-', size=(10, 1)), ],
 
         [sg.HorizontalSeparator()],
         [sg.Text('📋 СПИСОК ПРИБОРОВ', font=('Arial', 12, 'bold'))],
@@ -219,11 +175,161 @@ def build_main_window() -> sg.Window:
     return window
 
 
-def add_device_handler():
-    pass
+def add_device_to_list(name: str, mac: str):
+    """Добавляет в список, возвращает (success, error_message)"""
+    name = name.strip()
+    mac = re.sub(r'[:\-.]', ':', mac.strip().upper())
+    if not name:
+        return False, 'Введите наименование прибора!'
+    if not is_valid_mac(mac):
+        return False, 'MAC невалидный. Ожидается XX:XX:XX:XX:XX:XX'
+    # Проверка дубликатов
+    for existing_name, existing_mac in devices:
+        if existing_name == name:
+            return False, f'Прибор с наименованием "{name}" уже добавлен!'
+        if existing_mac == mac:
+            return False, f'MAC-адрес "{mac}" уже используется прибором "{existing_name}"!'
+    devices.append((name, mac))
+    return True, ''
+
+
+def update_device_list(window: sg.Window):
+    """Обновляет Listbox в переданном окне"""
+    display = [f'{i + 1:2}. {name:30} | {mac}' for i, (name, mac) in enumerate(devices)]
+    window['-DEVICE_LIST-'].update(values=display)
+
+
+def add_device_handler(window: sg.Window, values: dict[str, str]):
+    """Обработчик добавления прибора"""
+    name = values['-DEVICE_NAME-']
+    mac = values['-DEVICE_MAC-']
+    success, msg = add_device_to_list(name, mac)
+    if not success:
+        sg.popup_error(msg)
+    else:
+        update_device_list(window)
+        window['-DEVICE_NAME-'].set_focus()
+
+
+def delete_device_handler(window: sg.Window, values: dict[str, str]):
+    """Обработчик удаления выбранного прибора"""
+    selected = values['-DEVICE_LIST-']
+    if selected:
+        idx = int(selected[0].split('.')[0]) - 1
+        if 0 <= idx < len(devices):
+            del devices[idx]
+            update_device_list(window)
+
+
+def clear_devices_handler(window: sg.Window):
+    """Обработчик очистки списка приборов"""
+    devices.clear()
+    update_device_list(window)
+
+
+def get_template_path() -> str:
+    """Возвращает путь к файлу-шаблону (учитывает сборку в exe)"""
+    if getattr(sys, 'frozen', False):
+        # Запущено как скомпилированный .exe
+        base_path = sys._MEIPASS
+    else:
+        # Запущено как обычный скрипт
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    template_name = 'Реестр_Строителей.xlsx'
+    return os.path.join(base_path, template_name)
+
+
+def save_data_to_excel(values: dict[str, str], output_file: str):
+    """Сохраняет данные из формы и списка приборов в Excel. Возвращает (success, message)"""
+    uin = values['-UIN-'].strip()
+    if not is_valid_uin(uin):
+        return False, f'УИН "{uin}" невалидный'
+
+    if not devices:
+        return False, 'Добавьте хотя бы один прибор'
+
+    template_file = get_template_path()
+    try:
+        wb = openpyxl.load_workbook(template_file)
+        ws = wb.active
+    except FileNotFoundError:
+        return False, f'Файл шаблона "{template_file}" не найден!'
+    except Exception as e:
+        return False, f'Ошибка открытия шаблона: {e}'
+
+    # Копируем предзаполнение и форматирование из строки-образца (строка 2)
+    source_row = 2
+    if (len(devices) > 2):
+        max_col = ws.max_column
+        for i in range(4, len(devices) + 2):
+            target_row = i
+            ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+            for col in range(1, max_col + 1):
+                src_cell = ws.cell(source_row, col)
+                dst_cell = ws.cell(target_row, col)
+                dst_cell.value = src_cell.value
+                if src_cell.has_style:
+                    dst_cell.font = copy(src_cell.font)
+                    dst_cell.border = copy(src_cell.border)
+                    dst_cell.fill = copy(src_cell.fill)
+                    dst_cell.number_format = src_cell.number_format
+                    dst_cell.alignment = copy(src_cell.alignment)
+
+    # Общие поля для всех строк
+    common_values = {
+        COLUMNS['Наименование объекта']: values['-OBJECT_NAME-'].strip(),
+        COLUMNS['УИН объекта строительства']: values['-UIN-'].strip(),
+        COLUMNS['Адрес объекта']: values['-OBJECT_ADDRESS-'].strip(),
+        COLUMNS['ИНН организации- генподрядчика']: values['-INN_GEN-'].strip(),
+        COLUMNS['КПП организации - генподрядчика']: values['-KPP_GEN-'].strip(),
+        COLUMNS['Дата начала строительства']: values['-DATE_START-'].strip(),
+        COLUMNS['Дата окончания строительства']: values['-DATE_END-'].strip(),
+        COLUMNS['Тип прибора']: values['-DEVICE_TYPE-'].strip(),
+        COLUMNS['Дата ввода в эксплуатацию']: values['-DATE_ACTIVATE-'].strip(),
+        COLUMNS['Дата снятия прибора с эксплуатации']: values['-DATE_REMOVE-'].strip(),
+        COLUMNS['Даты простоя (технического обслуживания)']: values['-DOWNTIME-'].strip()
+    }
+
+    for i, (device_name, mac) in enumerate(devices):
+        # Колонки A, B, C не трогаем – оставляем как в шаблоне
+        # Заполняем общие поля
+        row = 2 + i
+        for col_letter, common_value in common_values.items():
+            ws.cell(row=row, column=column_index_from_string(col_letter)).value = common_value
+
+
+        # Заполняем спец поля
+        device_id = f'{uin}-{mac}'
+        ws.cell(row=row, column=column_index_from_string(COLUMNS['ID прибора'])).value = device_id
+        ws.cell(row=row, column=column_index_from_string(COLUMNS['MAC - адрес прибора'])).value = mac
+        ws.cell(row=row, column=column_index_from_string(COLUMNS['Наименование прибора'])).value = device_name
+        ws.cell(row=row, column=column_index_from_string(COLUMNS['SN прибора'])).value = mac
+
+    try:
+        wb.save(output_file)
+        return True, f'✅ Успешно сохранено!\nФайл: {output_file}\nЗаполнено строк: {len(devices)}'
+    except Exception as e:
+        return False, f'Ошибка сохранения: {e}'
+
+
+def save_to_excel_handler(values: dict[str, str]):
+    """Обработчик сохранения данных в Excel"""
+    output_file = values['-OUTPUT-'].strip()
+    if not output_file:
+        output_file = 'Реестр_Строителей_заполненный.xlsx'
+    if not output_file.endswith('.xlsx'):
+        output_file += '.xlsx'
+
+    success, msg = save_data_to_excel(values, output_file)
+    if success:
+        sg.popup_ok(msg)
+    else:
+        sg.popup_error(msg)
 
 
 def run_app():
+    """Запускает приложение"""
     window = build_main_window()
     while True:
         event, values = window.read()
@@ -231,130 +337,16 @@ def run_app():
             break
 
         if event == '➕ Добавить прибор':
-            try:
-                if devices and len(devices) >= int(values['-COUNT-']):
-                    sg.popup_error(f'Вы уже добавили {len(devices)} приборов. Задано: {values["-COUNT-"]}')
-                    continue
-                add_device_to_list(window)
-            except ValueError:
-                sg.popup_error(f'Количество приборов должно быть числом')
-                #continue
+            add_device_handler(window, values)
 
         if event == '❌ Удалить выбранный':
-            selected = values['-DEVICE_LIST-']
-            if selected:
-                idx = int(selected[0].split('.')[0]) - 1
-                if 0 <= idx < len(devices):
-                    del devices[idx]
-                    update_device_list()
+            delete_device_handler(window, values)
 
         if event == '🗑️ Очистить список':
-            devices.clear()
-            update_device_list()
+            clear_devices_handler(window)
 
         if event == '💾 Сохранить в Excel':
-            uin = values['-UIN-'].strip()
-
-            if not is_valid_uin(uin):
-                sg.popup_error(f'УИН "{uin}" невалидный')
-                continue
-            if not devices:
-                sg.popup_error('Добавьте хотя бы один прибор')
-                continue
-
-            try:
-                expected_count = int(values['-COUNT-'])
-                if len(devices) != expected_count:
-                    sg.popup_error(f'Добавлено {len(devices)} приборов, а задано {expected_count}. Продолжить?')
-                    response = sg.popup_yes_no('Продолжить запись?')
-                    if response != 'Yes':
-                        continue
-            except:
-                pass
-
-            template_file = get_template_path()
-            try:
-                wb = openpyxl.load_workbook(template_file)
-                ws = wb.active
-            except FileNotFoundError:
-                sg.popup_error(f'Файл шаблона "{template_file}" не найден!')
-                continue
-            except Exception as e:
-                sg.popup_error(f'Ошибка открытия шаблона: {e}')
-                continue
-
-            # Копируем предзаполнение и форматирование из строки-образца (строка 2)
-            source_row = 2
-            if (len(devices) > 2):
-                max_col = ws.max_column
-                for i in range(4, len(devices) + 2):
-                    target_row = i
-                    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
-                    for col in range(1, max_col + 1):
-                        src_cell = ws.cell(source_row, col)
-                        dst_cell = ws.cell(target_row, col)
-                        dst_cell.value = src_cell.value
-                        if src_cell.has_style:
-                            dst_cell.font = copy(src_cell.font)
-                            dst_cell.border = copy(src_cell.border)
-                            dst_cell.fill = copy(src_cell.fill)
-                            dst_cell.number_format = src_cell.number_format
-                            dst_cell.alignment = copy(src_cell.alignment)
-
-            common = {
-                COLUMNS['Наименование объекта']: values['-OBJECT_NAME-'].strip(),
-                COLUMNS['УИН объекта строительства']: values['-UIN-'].strip(),
-                COLUMNS['Адрес объекта']: values['-OBJECT_ADDRESS-'].strip(),
-                COLUMNS['ИНН организации- генподрядчика']: values['-INN_GEN-'].strip(),
-                COLUMNS['КПП организации - генподрядчика']: values['-KPP_GEN-'].strip(),
-                COLUMNS['Дата начала строительства']: values['-DATE_START-'].strip(),
-                COLUMNS['Дата окончания строительства']: values['-DATE_END-'].strip(),
-                COLUMNS['Тип прибора']: values['-DEVICE_TYPE-'].strip(),
-                COLUMNS['Дата ввода в эксплуатацию']: values['-DATE_ACTIVATE-'].strip(),
-                COLUMNS['Дата снятия прибора с эксплуатации']: values['-DATE_REMOVE-'].strip(),
-                COLUMNS['Даты простоя (технического обслуживания)']: values['-DOWNTIME-'].strip()
-            }
-
-            common_keys = [
-                'Наименование объекта',
-                'УИН объекта строительства',
-                'Адрес объекта',
-                'ИНН организации- генподрядчика',
-                'КПП организации - генподрядчика',
-                'Дата начала строительства',
-                'Дата окончания строительства',
-                'Тип прибора',
-                'Дата ввода в эксплуатацию',
-                'Дата снятия прибора с эксплуатации',
-                'Даты простоя (технического обслуживания)'
-            ]
-
-            for i, (device_name, mac) in enumerate(devices):
-                row = 2 + i
-                # Колонки A, B, C не трогаем – оставляем как в шаблоне
-                # Заполняем общие поля
-                for key in common_keys:
-                    col_letter = COLUMNS[key]
-                    ws.cell(row=row, column=column_index_from_string(col_letter)).value = common[col_letter]
-
-                # Заполняем спец поля
-                device_id = f'{uin}-{mac}'
-                ws.cell(row=row, column=column_index_from_string(COLUMNS['ID прибора'])).value = device_id
-                ws.cell(row=row, column=column_index_from_string(COLUMNS['MAC - адрес прибора'])).value = mac
-                ws.cell(row=row, column=column_index_from_string(COLUMNS['Наименование прибора'])).value = device_name
-                ws.cell(row=row, column=column_index_from_string(COLUMNS['SN прибора'])).value = mac
-
-            output_file = values['-OUTPUT-'].strip()
-            if not output_file:
-                output_file = 'Реестр_Строителей_заполненный.xlsx'
-            if not output_file.endswith('.xlsx'):
-                output_file += '.xlsx'
-
-            try:
-                wb.save(output_file)
-                sg.popup_ok(f'✅ Успешно сохранено!\nФайл: {output_file}\nЗаполнено строк: {len(devices)}')
-            except Exception as e:
-                sg.popup_error(f'Ошибка сохранения: {e}')
+            save_to_excel_handler(values)
 
         if event == '🔍 Проверить другой заполненный файл':
             show_file_validation_window()
